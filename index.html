@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smart Energy Monitor & Control System | IoT Dashboard</title>
+  <meta name="description" content="Real-time IoT smart energy monitoring and control system. Monitor voltage, current, power, temperature and humidity from ESP32 sensors. Control relays and track energy usage." />
+  <meta name="keywords" content="IoT, smart energy, ESP32, energy monitor, relay control, smart home" />
+  <link rel="icon" type="image/png" href="/app-icon.png" />
+  <link rel="apple-touch-icon" href="/app-icon.png" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#050505" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <meta name="google-site-verification" content="sk3Hm1wRQhXhx0Z-Dg0lxMs0HQudYUbN4maojIGSsPs" />
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Loading Screen -->
+    <div id="loading-screen" class="loading-screen">
+      <div class="loading-content">
+        <div class="loading-logo">
+          <img src="/app-icon.png" width="60" height="60" alt="Logo" style="border-radius: 12px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);" />
+        </div>
+        <h2 class="loading-title">Smart Energy Monitor</h2>
+        <div class="loading-bar"><div class="loading-bar-fill"></div></div>
+        <p class="loading-text">Initializing system...</p>
+      </div>
+    </div>
+
+    <!-- Main Application -->
+    <div id="main-app" class="main-app hidden">
+      <!-- Header -->
+      <header id="app-header" class="app-header">
+        <div class="header-left">
+          <div class="logo">
+            <img src="/app-icon.png" width="36" height="36" alt="App Logo" style="border-radius: 8px; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);" />
+          </div>
+          <div class="header-text">
+            <h1>Smart Energy Monitor</h1>
+            <span class="header-subtitle">IoT Control System</span>
+          </div>
+        </div>
+        <div class="header-right">
+          <div id="system-status" class="system-status status-normal">
+            <span class="status-dot"></span>
+            <span class="status-text">NORMAL</span>
+          </div>
+          <div class="header-meta">
+            <div class="meta-item">
+              <span class="meta-label">Last Update</span>
+              <span id="last-update" class="meta-value">--:--:--</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Uptime</span>
+              <span id="uptime" class="meta-value">0h 0m</span>
+            </div>
+          </div>
+          <button id="connection-btn" class="connection-btn disconnected" title="Connection Status">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M1 1l22 22M16.72 11.06A10.94 10.94 0 0119 12.55M5 12.55a10.94 10.94 0 015.17-2.39M10.71 5.05A16 16 0 0122.56 9M1.42 9a15.91 15.91 0 014.7-2.88M8.53 16.11a6 6 0 016.95 0M12 20h.01" />
+            </svg>
+          </button>
+          <button id="theme-toggle-btn" class="theme-toggle-btn" title="Toggle Theme">
+            <svg id="sun-icon" class="hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="4.22" x2="19.78" y2="5.64"></line>
+            </svg>
+            <svg id="moon-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- Dashboard Content -->
+      <main class="dashboard">
+        <!-- Live Sensor Cards Row -->
+        <section id="sensor-cards" class="section sensor-cards">
+          <div class="card sensor-card voltage-card" id="voltage-card">
+            <div class="card-glow"></div>
+            <div class="card-header">
+              <div class="card-icon voltage-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+                </svg>
+              </div>
+              <span class="card-label">Voltage</span>
+            </div>
+            <div class="card-value">
+              <span id="voltage-value" class="value-number">0.0</span>
+              <span class="value-unit">V</span>
+            </div>
+            <div class="card-sparkline" id="voltage-sparkline"></div>
+            <div class="card-footer">
+              <span class="card-range">Range: 207-253V</span>
+              <span id="voltage-trend" class="card-trend neutral">—</span>
+            </div>
+          </div>
+
+          <div class="card sensor-card current-card" id="current-card">
+            <div class="card-glow"></div>
+            <div class="card-header">
+              <div class="card-icon current-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 2v20M2 12h20M7 7l10 10M17 7L7 17"/>
+                </svg>
+              </div>
+              <span class="card-label">Current</span>
+            </div>
+            <div class="card-value">
+              <span id="current-value" class="value-number">0.00</span>
+              <span class="value-unit">A</span>
+            </div>
+            <div class="card-sparkline" id="current-sparkline"></div>
+            <div class="card-footer">
+              <span class="card-range">Range: 0-30A</span>
+              <span id="current-trend" class="card-trend neutral">—</span>
+            </div>
+          </div>
+
+          <div class="card sensor-card power-card" id="power-card">
+            <div class="card-glow"></div>
+            <div class="card-header">
+              <div class="card-icon power-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"/>
+                  <path d="M12 6v6l4 2"/>
+                </svg>
+              </div>
+              <span class="card-label">Power</span>
+            </div>
+            <div class="card-value">
+              <span id="power-value" class="value-number">0.0</span>
+              <span class="value-unit">W</span>
+            </div>
+            <div class="card-sparkline" id="power-sparkline"></div>
+            <div class="card-footer">
+              <span class="card-range">Calculated: V × I</span>
+              <span id="power-trend" class="card-trend neutral">—</span>
+            </div>
+          </div>
+
+          <div class="card sensor-card temp-card" id="temp-card">
+            <div class="card-glow"></div>
+            <div class="card-header">
+              <div class="card-icon temp-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M14 14.76V3.5a2.5 2.5 0 00-5 0v11.26a4.5 4.5 0 105 0z"/>
+                </svg>
+              </div>
+              <span class="card-label">Temperature</span>
+            </div>
+            <div class="card-value">
+              <span id="temp-value" class="value-number">0.0</span>
+              <span class="value-unit">°C</span>
+            </div>
+            <div class="card-sparkline" id="temp-sparkline"></div>
+            <div class="card-footer">
+              <span class="card-range">DHT22 Sensor</span>
+              <span id="temp-trend" class="card-trend neutral">—</span>
+            </div>
+          </div>
+
+          <div class="card sensor-card humidity-card" id="humidity-card">
+            <div class="card-glow"></div>
+            <div class="card-header">
+              <div class="card-icon humidity-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 2.69l5.66 5.66a8 8 0 11-11.31 0z"/>
+                </svg>
+              </div>
+              <span class="card-label">Humidity</span>
+            </div>
+            <div class="card-value">
+              <span id="humidity-value" class="value-number">0.0</span>
+              <span class="value-unit">%</span>
+            </div>
+            <div class="card-sparkline" id="humidity-sparkline"></div>
+            <div class="card-footer">
+              <span class="card-range">DHT22 Sensor</span>
+              <span id="humidity-trend" class="card-trend neutral">—</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Charts + Controls Row -->
+        <section class="section charts-controls-row">
+          <!-- Charts -->
+          <div class="charts-panel">
+            <div class="card chart-card" id="chart-card">
+              <div class="chart-header">
+                <h2 class="section-title">Real-Time Analytics</h2>
+                <div class="chart-tabs">
+                  <button class="chart-tab active" data-chart="voltage" id="tab-voltage">Voltage</button>
+                  <button class="chart-tab" data-chart="current" id="tab-current">Current</button>
+                  <button class="chart-tab" data-chart="power" id="tab-power">Power</button>
+                  <button class="chart-tab" data-chart="all" id="tab-all">All</button>
+                </div>
+              </div>
+              <div class="chart-container">
+                <canvas id="main-chart"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right Side Controls -->
+          <div class="controls-panel">
+            <!-- Relay Control -->
+            <div class="card relay-card" id="relay-card">
+              <h3 class="card-title">Relay Control</h3>
+              <div class="relay-visual">
+                <div id="relay-status-ring" class="relay-ring off">
+                  <div class="relay-inner">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M18.36 6.64a9 9 0 11-12.73 0M12 2v10"/>
+                    </svg>
+                  </div>
+                </div>
+                <span id="relay-status-text" class="relay-status-text">OFF</span>
+              </div>
+              <label class="toggle-switch" id="relay-toggle-label">
+                <input type="checkbox" id="relay-toggle" />
+                <span class="toggle-slider"></span>
+              </label>
+              <p class="relay-note">Toggle to control load relay</p>
+            </div>
+
+            <!-- Energy Balance -->
+            <div class="card energy-card" id="energy-card">
+              <h3 class="card-title">Energy Balance</h3>
+              <div class="energy-input-group">
+                <label for="energy-bought-input">Total Energy Bought (kWh)</label>
+                <div class="input-row">
+                  <input type="number" id="energy-bought-input" placeholder="e.g. 100" min="0" step="0.1" />
+                  <button id="energy-update-btn" class="btn-primary">Update</button>
+                </div>
+              </div>
+              <div class="energy-stats">
+                <div class="energy-stat">
+                  <span class="energy-label">Purchased</span>
+                  <span id="energy-bought" class="energy-value">0.00 kWh</span>
+                </div>
+                <div class="energy-stat">
+                  <span class="energy-label">Used</span>
+                  <span id="energy-used" class="energy-value">0.00 kWh</span>
+                </div>
+                <div class="energy-stat">
+                  <span class="energy-label">Remaining</span>
+                  <span id="energy-remaining" class="energy-value accent">0.00 kWh</span>
+                </div>
+              </div>
+              <div class="energy-progress-wrapper">
+                <div class="energy-progress-bar">
+                  <div id="energy-progress-fill" class="energy-progress-fill" style="width: 0%"></div>
+                </div>
+                <span id="energy-percent" class="energy-percent">0%</span>
+              </div>
+            </div>
+
+            <!-- Safety Limits -->
+            <div class="card limits-card" id="limits-card">
+              <h3 class="card-title">Safety Limits</h3>
+              <div class="energy-input-group">
+                <div class="input-row" style="margin-bottom: var(--gap-sm);">
+                  <label for="limit-power-input" style="flex: 1; align-content: center; margin: 0;">Max Power (W)</label>
+                  <input type="number" id="limit-power-input" placeholder="e.g. 5000" min="0" style="width: 80px;" />
+                </div>
+                <div class="input-row" style="margin-bottom: var(--gap-sm);">
+                  <label for="limit-current-input" style="flex: 1; align-content: center; margin: 0;">Max Current (A)</label>
+                  <input type="number" id="limit-current-input" placeholder="e.g. 25" min="0" step="0.1" style="width: 80px;" />
+                </div>
+                <button id="limits-update-btn" class="btn-primary" style="width: 100%; margin-top: var(--gap-sm); padding: 8px 16px;">Save Limits</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Alerts Panel -->
+        <section class="section alerts-section">
+          <div class="card alerts-card" id="alerts-card">
+            <div class="alerts-header">
+              <h2 class="section-title">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01"/>
+                </svg>
+                Alerts & Notifications
+              </h2>
+              <button id="clear-alerts-btn" class="btn-ghost">Clear All</button>
+            </div>
+            <div id="alerts-list" class="alerts-list">
+              <div class="alert-empty">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
+                  <polyline points="22 4 12 14.01 9 11.01"/>
+                </svg>
+                <p>System operating normally. No alerts.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Technoidfix Footer -->
+        <footer class="app-footer">
+          <p>Designed & Engineered by <a href="https://technoidfix.online" target="_blank" rel="noopener noreferrer">Technoidfix.online</a></p>
+        </footer>
+      </main>
+
+      <!-- Alert Sound (for critical alerts) -->
+      <div id="alert-flash" class="alert-flash hidden"></div>
+    </div>
+  </div>
+
+  <!-- CDN Libraries (no build step required) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+
+  <!-- Application Modules (loaded in dependency order) -->
+  <script src="/js/supabase.js"></script>
+  <script src="/js/demo.js"></script>
+  <script src="/js/charts.js"></script>
+  <script src="/js/alerts.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

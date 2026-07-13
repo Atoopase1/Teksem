@@ -1,0 +1,9 @@
+{
+  "name": "smart-energy-monitor",
+  "version": "1.2.3",
+  "private": true,
+  "description": "Smart Energy Monitor & Control System - IoT Dashboard",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.101.1"
+  }
+}
