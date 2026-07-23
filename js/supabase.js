@@ -17,8 +17,8 @@
   // Replace these with your real values.
   // For Vercel, you can also inject them at build time.
   // ============================================
-  var supabaseUrl = 'YOUR_SUPABASE_URL';
-  var supabaseAnonKey = 'YOUR_SUPABASE_ANON_KEY';
+  var supabaseUrl = 'https://etlagrvacikinnihpyss.supabase.co';
+  var supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV0bGFncnZhY2lraW5uaWhweXNzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODM3NTYsImV4cCI6MjA5MDg1OTc1Nn0.NJw0ZqIkySahrh0hNK2AfCAShDUaDE7RBLQ02_RiG0Q';
 
   // Validate configuration
   if (supabaseUrl === 'YOUR_SUPABASE_URL' || supabaseAnonKey === 'YOUR_SUPABASE_ANON_KEY') {
