@@ -21,12 +21,29 @@ const char* SUPABASE_KEY  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdX
 #define CURR_PIN  35
 #define DHT_PIN   15
 #define RELAY_PIN 23
+#define LED_PIN   2  // Built-in LED
 
 Adafruit_SSD1306 display(128, 64, &Wire, -1);
 DHT dht(DHT_PIN, DHT22);
 
 WiFiClient mqttWiFiClient;
 PubSubClient mqtt(mqttWiFiClient);
+
+// MQTT callback — runs when a message arrives on a subscribed topic
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  String msg = "";
+  for (unsigned int i = 0; i < length; i++) msg += (char)payload[i];
+  
+  if (String(topic) == "teksem/relay/control") {
+    StaticJsonDocument<64> doc;
+    if (!deserializeJson(doc, msg)) {
+      bool relayState = doc["relay"].as<bool>();
+      digitalWrite(RELAY_PIN, relayState ? HIGH : LOW);
+      digitalWrite(LED_PIN,   relayState ? HIGH : LOW);
+      Serial.printf("Relay & LED: %s\n", relayState ? "ON" : "OFF");
+    }
+  }
+}
 WiFiClientSecure httpsClient;
 
 void connectMQTT() {
@@ -37,6 +54,8 @@ void connectMQTT() {
     clientId += String(random(0xffff), HEX);
     if (mqtt.connect(clientId.c_str())) {
       Serial.println("connected!");
+      // Subscribe to relay control topic
+      mqtt.subscribe("teksem/relay/control");
     } else {
       Serial.print("failed, rc=");
       Serial.print(mqtt.state());
@@ -49,7 +68,9 @@ void connectMQTT() {
 void setup() {
   Serial.begin(115200);
   pinMode(RELAY_PIN, OUTPUT);
+  pinMode(LED_PIN, OUTPUT);
   digitalWrite(RELAY_PIN, LOW);
+  digitalWrite(LED_PIN, LOW);
   
   dht.begin();
   if (display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
@@ -70,7 +91,8 @@ void setup() {
   
   httpsClient.setInsecure(); // Set globally once
   mqtt.setServer("broker.emqx.io", 1883);
-  mqtt.setKeepAlive(60); // 60-second keepalive
+  mqtt.setKeepAlive(60);
+  mqtt.setCallback(mqttCallback); // 60-second keepalive
 }
 
 void loop() {
@@ -101,59 +123,22 @@ void loop() {
   display.printf("T: %.1fC  H: %.1f%%", t, h);
   display.display();
 
-  // 3. HTTP Client request
-  HTTPClient http;
-  String postUrl = String(SUPABASE_HOST) + "/rest/v1/sensor_data";
-  
-  // Use shorter timeouts so it doesn't block MQTT if Supabase is slow
-  http.setConnectTimeout(3000);
-  http.setTimeout(3000);
+  // 3. Build JSON and publish over MQTT
+  StaticJsonDocument<200> doc;
+  doc["voltage"]     = v;
+  doc["current"]     = c;
+  doc["power"]       = p;
+  doc["temperature"] = t;
+  doc["humidity"]    = h;
+  String json;
+  serializeJson(doc, json);
 
-  if (http.begin(httpsClient, postUrl)) {
-    http.addHeader("Content-Type", "application/json");
-    http.addHeader("apikey", SUPABASE_KEY);
-    http.addHeader("Authorization", String("Bearer ") + SUPABASE_KEY);
-    http.addHeader("Prefer", "return=minimal");
+  bool ok = mqtt.publish("teksem/energy/data", json.c_str());
+  Serial.printf("MQTT Publish: %s\n", ok ? "OK" : "FAILED");
 
-    StaticJsonDocument<200> doc;
-    doc["voltage"] = v;
-    doc["current"] = c;
-    doc["power"] = p;
-    doc["temperature"] = t;
-    doc["humidity"] = h;
-    String json;
-    serializeJson(doc, json);
-    
-    // Publish realtime data over MQTT
-    mqtt.publish("teksem/energy/data", json.c_str());
-    mqtt.loop(); // Process outgoing MQTT messages immediately
-
-    int code = http.POST(json);
-    Serial.printf("POST Data Status: %d\n", code);
-    http.end();
-  }
-
-  // 4. Read Relay Status
-  String getUrl = String(SUPABASE_HOST) + "/rest/v1/control?id=eq.1&select=relay_status";
-  if (http.begin(httpsClient, getUrl)) {
-    http.addHeader("apikey", SUPABASE_KEY);
-    http.addHeader("Authorization", String("Bearer ") + SUPABASE_KEY);
-
-    int code = http.GET();
-    if (code == 200) {
-      StaticJsonDocument<200> doc;
-      if (!deserializeJson(doc, http.getString()) && doc.is<JsonArray>() && doc.size() > 0) {
-        bool state = doc[0]["relay_status"].as<bool>();
-        digitalWrite(RELAY_PIN, state ? HIGH : LOW);
-        Serial.printf("Relay Status: %s\n", state ? "ON" : "OFF");
-      }
-    }
-    http.end();
-  }
-
-  // 5. Non-blocking delay (keeps MQTT alive while waiting 5 seconds)
+  // 4. Non-blocking delay (keeps MQTT alive while waiting 2 seconds)
   unsigned long startWait = millis();
-  while (millis() - startWait < 5000) {
+  while (millis() - startWait < 2000) {
     mqtt.loop();
     delay(10);
   }

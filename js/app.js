@@ -24,6 +24,7 @@
   var initMainChart, initSparkline, addDataPoint, addEnvironmentData, setChartView;
   var analyzeData, saveAlert, autoShutoffRelay, getSystemStatus, updateLimits, THRESHOLDS, clearAllAlerts;
   var generateDemoData, getDemoEnergy, setDemoRelay, setDemoEnergyBought, getDemoRelay;
+  var mqttClient = null; // Global MQTT client for publishing relay commands
 
   // ============================================
   // AUTO CACHE-BUSTING
@@ -226,6 +227,12 @@
     var relayToggle = document.getElementById('relay-toggle');
     relayToggle.addEventListener('change', function (e) {
       var newState = e.target.checked;
+      // Publish relay command over MQTT to the ESP32
+      if (mqttClient && mqttClient.connected) {
+        var payload = JSON.stringify({ relay: newState });
+        mqttClient.publish('teksem/relay/control', payload);
+        console.log('📤 Relay command sent via MQTT:', newState ? 'ON' : 'OFF');
+      }
       toggleRelay(newState);
     });
 
@@ -412,6 +419,7 @@
     }
     
     var client = mqtt.connect(brokerUrl);
+    mqttClient = client; // Store globally for relay publishing
     
     client.on('connect', function () {
       console.log('✅ Connected to MQTT Broker via WebSockets');
