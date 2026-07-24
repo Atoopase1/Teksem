@@ -42,6 +42,9 @@ PubSubClient mqtt(mqttWiFiClient);
 // loadOn = true means load is currently powered (relay LOW / de-energized)
 bool loadOn = true;
 
+// true = user deliberately turned load OFF via webapp — blocks auto-restore
+bool userManualOff = false;
+
 // System condition flags — set in loop(), read by mqttCallback
 bool isFault   = false;
 bool isWarning = false;
@@ -72,13 +75,15 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
       } else if (isFault && !wantLoadOn) {
         // Turning load OFF during fault — already OFF, acknowledge
         loadOn = false;
-        digitalWrite(RELAY_PIN, HIGH); // Keep energized = load stays OFF
+        userManualOff = true;             // Treat as manual off
+        digitalWrite(RELAY_PIN, HIGH);
         mqtt.publish("teksem/relay/status", "{\"status\":\"off\"}");
 
       } else if (isWarning && wantLoadOn) {
         // WARNING — allow load ON but send critical warning to webapp
         loadOn = true;
-        digitalWrite(RELAY_PIN, LOW); // De-energize = NC closed = load ON
+        userManualOff = false;            // User wants it ON — clear manual flag
+        digitalWrite(RELAY_PIN, LOW);
         mqtt.publish("teksem/relay/status",
           "{\"status\":\"critical_warning\","
           "\"reason\":\"Warning condition — load ON with risk\"}");
@@ -86,9 +91,9 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 
       } else {
         // Normal / safe operation
-        // wantLoadOn=true  → LOW  (de-energize → NC closed → load ON)
-        // wantLoadOn=false → HIGH (energize    → NC opens  → load OFF)
         loadOn = wantLoadOn;
+        if (!wantLoadOn) userManualOff = true;   // User chose to turn load OFF
+        else             userManualOff = false;   // User chose to turn load ON
         digitalWrite(RELAY_PIN, loadOn ? LOW : HIGH);
         mqtt.publish("teksem/relay/status",
           loadOn ? "{\"status\":\"on\"}" : "{\"status\":\"off\"}");
@@ -180,7 +185,8 @@ void loop() {
   // relay to open the NC contact and disconnect the load.
   if (isFault && loadOn) {
     loadOn = false;
-    digitalWrite(RELAY_PIN, HIGH); // Energize → NC opens → load OFF
+    userManualOff = false;        // Fault forced it off — allow auto-restore later
+    digitalWrite(RELAY_PIN, HIGH);
     mqtt.publish("teksem/relay/status",
       "{\"status\":\"force_off\","
       "\"reason\":\"Fault detected — relay energized, load disconnected\"}");
@@ -188,13 +194,13 @@ void loop() {
   }
 
   // Auto-restore ────────────────────────────────────────────────────────────
-  // When system returns to safe (green LED on), de-energize relay so the NC
-  // contact closes again and load comes back on automatically.
-  if (isSafe && !loadOn) {
+  // Only restore if the fault cleared AND the user did NOT manually turn off.
+  // If the user turned it off deliberately, they must tap ON themselves.
+  if (isSafe && !loadOn && !userManualOff) {
     loadOn = true;
     digitalWrite(RELAY_PIN, LOW); // De-energize → NC closes → load ON
     mqtt.publish("teksem/relay/status", "{\"status\":\"on\"}");
-    Serial.println("System safe — load restored, relay de-energized");
+    Serial.println("System safe — load restored automatically");
   }
   // ─────────────────────────────────────────────────────────────────────────
 
