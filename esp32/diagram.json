@@ -26,7 +26,49 @@
       "left": 137.6,
       "attrs": { "label": "Current" }
     },
-    { "type": "wokwi-relay-module", "id": "relay1", "top": 86.2, "left": -124.8, "attrs": {} }
+    { "type": "wokwi-relay-module", "id": "relay1", "top": 86.2, "left": -124.8, "attrs": {} },
+    {
+      "type": "wokwi-led",
+      "id": "led_red",
+      "top": 200,
+      "left": -220,
+      "attrs": { "color": "red", "label": "FAULT" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_yellow",
+      "top": 240,
+      "left": -220,
+      "attrs": { "color": "yellow", "label": "WARNING" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_green",
+      "top": 280,
+      "left": -220,
+      "attrs": { "color": "green", "label": "POWER" }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "res_red",
+      "top": 200,
+      "left": -160,
+      "attrs": { "value": "220" }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "res_yellow",
+      "top": 240,
+      "left": -160,
+      "attrs": { "value": "220" }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "res_green",
+      "top": 280,
+      "left": -160,
+      "attrs": { "value": "220" }
+    }
   ],
   "connections": [
     [ "esp:TX", "$serialMonitor:RX", "", [] ],
@@ -46,7 +88,16 @@
     [ "pot2:GND", "esp:GND", "black", [ "v0" ] ],
     [ "relay1:IN", "esp:23", "blue", [ "v0" ] ],
     [ "relay1:VCC", "esp:5V", "red", [ "v0" ] ],
-    [ "relay1:GND", "esp:GND", "black", [ "v0" ] ]
+    [ "relay1:GND", "esp:GND", "black", [ "v0" ] ],
+    [ "esp:4", "res_red:1", "red", [ "v0" ] ],
+    [ "res_red:2", "led_red:A", "red", [ "v0" ] ],
+    [ "led_red:C", "esp:GND", "black", [ "v0" ] ],
+    [ "esp:2", "res_yellow:1", "yellow", [ "v0" ] ],
+    [ "res_yellow:2", "led_yellow:A", "yellow", [ "v0" ] ],
+    [ "led_yellow:C", "esp:GND", "black", [ "v0" ] ],
+    [ "esp:5", "res_green:1", "green", [ "v0" ] ],
+    [ "res_green:2", "led_green:A", "green", [ "v0" ] ],
+    [ "led_green:C", "esp:GND", "black", [ "v0" ] ]
   ],
   "dependencies": {}
 }

@@ -47,7 +47,7 @@
   // APPLICATION STATE
   // ============================================
   var state = {
-    relayOn: false,
+    relayOn: true,   // Default ON — mirrors NC relay (load powered at startup)
     lastUpdate: null,
     startTime: Date.now(),
     connected: false,
@@ -175,6 +175,11 @@
 
       // Setup event listeners
       setupEventListeners();
+
+      // Set relay toggle to ON at startup — mirrors NC relay default (load powered)
+      // and ensure fault-lock is cleared
+      updateRelayUI(true);
+      setRelayFaultLock(false);
 
       // Start data flow
       if (isDemoMode) {
@@ -352,10 +357,9 @@
       var alertsResult = results[2];
       var sensorResult = results[3];
 
-      // Apply control state
+      // Relay state is managed purely by MQTT — not read from Supabase
+      // Only apply limits if available
       if (controlResult.data) {
-        state.relayOn = controlResult.data.relay_status;
-        updateRelayUI(state.relayOn);
         if (controlResult.data.power_limit) THRESHOLDS.POWER_FAULT = controlResult.data.power_limit;
         if (controlResult.data.current_limit) THRESHOLDS.CURRENT_FAULT = controlResult.data.current_limit;
         var pi = document.getElementById('limit-power-input');
@@ -423,9 +427,16 @@
     
     client.on('connect', function () {
       console.log('✅ Connected to MQTT Broker via WebSockets');
+      // Subscribe to sensor data
       client.subscribe(topic, function (err) {
         if (!err) {
           console.log('📡 Subscribed to MQTT Topic:', topic);
+        }
+      });
+      // Subscribe to relay status feedback from ESP32
+      client.subscribe('teksem/relay/status', function (err) {
+        if (!err) {
+          console.log('📡 Subscribed to relay status topic');
         }
       });
     });
@@ -434,10 +445,45 @@
       if (receivedTopic === topic) {
         try {
           var data = JSON.parse(message.toString());
-          // Update the UI immediately with the realtime payload
           processSensorData(data);
         } catch (e) {
-          console.warn('Failed to parse MQTT payload:', e);
+          console.warn('Failed to parse MQTT sensor payload:', e);
+        }
+      } else if (receivedTopic === 'teksem/relay/status') {
+        try {
+          var statusMsg = JSON.parse(message.toString());
+          var st = statusMsg.status;
+
+          if (st === 'force_off') {
+            // Fault — snap UI to OFF and lock the toggle
+            state.relayOn = false;
+            updateRelayUI(false);
+            setRelayFaultLock(true);
+            showToast('\u26a1 FAULT: ' + (statusMsg.reason || 'Load disconnected by ESP32'), 'error');
+            console.warn('Relay force-off received:', statusMsg.reason);
+
+          } else if (st === 'critical_warning') {
+            // Warning — load ON but unlock and warn
+            state.relayOn = true;
+            updateRelayUI(true);
+            setRelayFaultLock(false);
+            showToast('\u26a0\ufe0f WARNING: ' + (statusMsg.reason || 'Load ON under warning conditions'), 'error');
+            console.warn('Relay critical warning:', statusMsg.reason);
+
+          } else if (st === 'on') {
+            // Load restored (auto or manual) — unlock toggle, show ON
+            state.relayOn = true;
+            updateRelayUI(true);
+            setRelayFaultLock(false);
+
+          } else if (st === 'off') {
+            // Load turned off manually — unlock toggle, show OFF
+            state.relayOn = false;
+            updateRelayUI(false);
+            setRelayFaultLock(false);
+          }
+        } catch (e) {
+          console.warn('Failed to parse MQTT relay status:', e);
         }
       }
     });
@@ -630,21 +676,10 @@
         var newUsed      = (state.energy.energy_used || 0) + deltaKWh;
         var newRemaining = Math.max(0, (state.energy.total_energy_bought || 0) - newUsed);
 
-        // Optimistic local update
+        // Local optimistic update only — no Supabase sync
         state.energy.energy_used      = newUsed;
         state.energy.energy_remaining = newRemaining;
         updateEnergyUI();
-
-        // Persist to Supabase every ~30 seconds to avoid hammering the DB
-        if (!state._lastEnergySync || (Date.now() - state._lastEnergySync) > 30000) {
-          state._lastEnergySync = Date.now();
-          supabase.from('user_energy').update({
-            energy_used: newUsed,
-            energy_remaining: newRemaining
-          }).eq('id', 1).catch(function (e) {
-            console.warn('Energy sync failed:', e);
-          });
-        }
       }
     }
     lastEnergyUpdateTime = Date.now();
@@ -751,6 +786,8 @@
 
   /**
    * Update relay UI state
+   * isOn = true  → toggle checked, ring green  (load is ON)
+   * isOn = false → toggle unchecked, ring red  (load is OFF)
    */
   function updateRelayUI(isOn) {
     var toggle = document.getElementById('relay-toggle');
@@ -761,6 +798,32 @@
     ring.className = 'relay-ring ' + (isOn ? 'on' : 'off');
     text.textContent = isOn ? 'ON' : 'OFF';
     text.style.color = isOn ? 'var(--color-normal)' : 'var(--color-danger)';
+  }
+
+  /**
+   * Lock or unlock the relay toggle during a fault condition.
+   * locked=true  → disables switch, shows red fault border + tooltip
+   * locked=false → re-enables switch, clears visual indicator
+   */
+  function setRelayFaultLock(locked) {
+    var toggle = document.getElementById('relay-toggle');
+    var label  = toggle ? toggle.closest('label') || toggle.parentElement : null;
+
+    toggle.disabled = locked;
+
+    if (label) {
+      if (locked) {
+        label.style.opacity = '0.55';
+        label.style.outline = '2px solid var(--color-danger)';
+        label.style.borderRadius = '20px';
+        label.title = 'Relay locked — fault condition active';
+      } else {
+        label.style.opacity = '';
+        label.style.outline = '';
+        label.style.borderRadius = '';
+        label.title = '';
+      }
+    }
   }
 
   /**
@@ -1131,49 +1194,19 @@
       showToast('Warning: No voltage detected — relay toggled anyway', 'info');
     }
 
-    // 1. Optimistic UI update — feel instant
-    var previousState = state.relayOn;
+    // Optimistic UI update — MQTT command was already published by the event listener
     state.relayOn = on;
     updateRelayUI(on);
 
-    // Show loading spinner
+    // Remove loading spinner immediately (no async wait needed)
     var ring = document.getElementById('relay-status-ring');
-    if (ring) ring.classList.add('loading');
+    if (ring) ring.classList.remove('loading');
 
     if (isDemoMode) {
       setDemoRelay(on);
-      if (ring) ring.classList.remove('loading');
-      showToast('Relay turned ' + (on ? 'ON' : 'OFF'), on ? 'success' : 'info');
-      return;
     }
 
-    // 2. Network Request
-    supabase
-      .from('control')
-      .update({
-        relay_status: on,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', 1)
-      .then(function (result) {
-        if (ring) ring.classList.remove('loading');
-
-        if (result.error) {
-          console.error('Error toggling relay:', result.error);
-          state.relayOn = previousState;
-          updateRelayUI(previousState);
-          showToast('Failed to toggle relay', 'error');
-        } else {
-          showToast('Relay turned ' + (on ? 'ON' : 'OFF'), on ? 'success' : 'info');
-        }
-      })
-      .catch(function (err) {
-        console.error('Relay toggle failed:', err);
-        if (ring) ring.classList.remove('loading');
-        state.relayOn = previousState;
-        updateRelayUI(previousState);
-        showToast('Connection error', 'error');
-      });
+    showToast('Relay turned ' + (on ? 'ON' : 'OFF'), on ? 'success' : 'info');
   }
 
   // ============================================
