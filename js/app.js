@@ -185,6 +185,9 @@
       } else {
         console.log('🔌 Connecting to Supabase...');
         initializeSupabase();
+        
+        console.log('🔌 Initializing MQTT for Realtime...');
+        setupMQTT();
       }
 
       // Start uptime counter
@@ -392,11 +395,57 @@
     });
   }
 
+  // ============================================
+  // MQTT INTEGRATION (REALTIME WEB SOCKETS)
+  // ============================================
+  function setupMQTT() {
+    // Connect to EMQX public broker over WebSockets securely
+    var brokerUrl = 'wss://broker.emqx.io:8084/mqtt';
+    var topic = 'teksem/energy/data';
+    
+    console.log('🔌 Connecting to MQTT Broker:', brokerUrl);
+    
+    // Ensure the mqtt library is loaded
+    if (typeof mqtt === 'undefined') {
+      console.error('MQTT library not loaded!');
+      return;
+    }
+    
+    var client = mqtt.connect(brokerUrl);
+    
+    client.on('connect', function () {
+      console.log('✅ Connected to MQTT Broker via WebSockets');
+      client.subscribe(topic, function (err) {
+        if (!err) {
+          console.log('📡 Subscribed to MQTT Topic:', topic);
+        }
+      });
+    });
+    
+    client.on('message', function (receivedTopic, message) {
+      if (receivedTopic === topic) {
+        try {
+          var data = JSON.parse(message.toString());
+          // Update the UI immediately with the realtime payload
+          processSensorData(data);
+        } catch (e) {
+          console.warn('Failed to parse MQTT payload:', e);
+        }
+      }
+    });
+    
+    client.on('error', function (err) {
+      console.warn('MQTT Error:', err);
+    });
+  }
+
   /**
    * Setup realtime subscriptions with connection health monitoring
    */
   function setupRealtimeSubscriptions() {
-    // Sensor data channel
+    // We now use MQTT for real-time sensor data, so we don't need Supabase 
+    // to notify us of every single insert (prevents double-plotting on charts).
+    /*
     var sensorChannel = supabase
       .channel('sensor-data-changes')
       .on('postgres_changes', {
@@ -409,6 +458,7 @@
       .subscribe(function (status) {
         handleChannelStatus('sensor-data', status);
       });
+    */
 
     // Control channel
     var controlChannel = supabase
@@ -460,7 +510,7 @@
       })
       .subscribe();
 
-    state.realtimeChannels = [sensorChannel, controlChannel, energyChannel, alertsChannel];
+    state.realtimeChannels = [controlChannel, energyChannel, alertsChannel];
   }
 
   /**
@@ -555,9 +605,42 @@
   // ============================================
   // DATA PROCESSING
   // ============================================
+  // Interval reference for energy accumulation
+  var lastEnergyUpdateTime = null;
+
   function processSensorData(data) {
     // Calculate power if not provided
     var power = data.power || (data.voltage * data.current);
+
+    // ── Accumulate energy_used from live power readings ──────────
+    // Wh = W × h; we convert the elapsed seconds to hours
+    if (!isDemoMode && lastEnergyUpdateTime !== null && power > 0) {
+      var elapsedHours = (Date.now() - lastEnergyUpdateTime) / 3600000;
+      var deltaKWh = (power / 1000) * elapsedHours;
+
+      if (deltaKWh > 0) {
+        var newUsed      = (state.energy.energy_used || 0) + deltaKWh;
+        var newRemaining = Math.max(0, (state.energy.total_energy_bought || 0) - newUsed);
+
+        // Optimistic local update
+        state.energy.energy_used      = newUsed;
+        state.energy.energy_remaining = newRemaining;
+        updateEnergyUI();
+
+        // Persist to Supabase every ~30 seconds to avoid hammering the DB
+        if (!state._lastEnergySync || (Date.now() - state._lastEnergySync) > 30000) {
+          state._lastEnergySync = Date.now();
+          supabase.from('user_energy').update({
+            energy_used: newUsed,
+            energy_remaining: newRemaining
+          }).eq('id', 1).catch(function (e) {
+            console.warn('Energy sync failed:', e);
+          });
+        }
+      }
+    }
+    lastEnergyUpdateTime = Date.now();
+    // ─────────────────────────────────────────────────────────────
 
     // Batch updates using requestAnimationFrame for performance
     if (!state.pendingRafUpdate) {
@@ -1034,11 +1117,10 @@
   // RELAY CONTROL (OPTIMISTIC UI)
   // ============================================
   function toggleRelay(on) {
-    // Check if there is power before allowing toggle
-    if (state.currentData.voltage < 10) {
-      showToast('Please, there is no power', 'error');
-      updateRelayUI(state.relayOn);
-      return;
+    // Warn if no voltage detected, but still allow the toggle
+    // (voltage is 0 when ESP32 hasn't connected yet — don't block the UI)
+    if (state.currentData.voltage < 10 && state.connected) {
+      showToast('Warning: No voltage detected — relay toggled anyway', 'info');
     }
 
     // 1. Optimistic UI update — feel instant

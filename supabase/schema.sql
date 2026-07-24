@@ -28,12 +28,14 @@ CREATE INDEX IF NOT EXISTS idx_sensor_data_created_at ON sensor_data(created_at 
 CREATE TABLE IF NOT EXISTS control (
   id INT PRIMARY KEY DEFAULT 1,
   relay_status BOOLEAN NOT NULL DEFAULT false,
+  power_limit FLOAT NOT NULL DEFAULT 5000,    -- Max power threshold (W)
+  current_limit FLOAT NOT NULL DEFAULT 25,    -- Max current threshold (A)
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Insert default control row
-INSERT INTO control (id, relay_status, updated_at)
-VALUES (1, false, NOW())
+INSERT INTO control (id, relay_status, power_limit, current_limit, updated_at)
+VALUES (1, false, 5000, 25, NOW())
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================

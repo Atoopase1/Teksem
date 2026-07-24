@@ -4,6 +4,10 @@
   "private": true,
   "description": "Smart Energy Monitor & Control System - IoT Dashboard",
   "dependencies": {
-    "@supabase/supabase-js": "^2.101.1"
+    "@supabase/supabase-js": "^2.101.1",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "http-proxy-middleware": "^4.2.0",
+    "localtunnel": "^2.0.2"
   }
 }

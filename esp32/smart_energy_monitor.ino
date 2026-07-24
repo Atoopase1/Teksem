@@ -1,214 +1,154 @@
 #include <WiFi.h>
-#include <WiFiClientSecure.h>
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 #include <DHT.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <PubSubClient.h>
 
-// Wokwi Simulated WiFi
-const char* WIFI_SSID     = "Wokwi-GUEST";
-const char* WIFI_PASSWORD = "";
+// WiFi Settings
+const char* WIFI_SSID = "Wokwi-GUEST";
+const char* WIFI_PASS = "";
 
-// Your Supabase Keys
-const char* SUPABASE_URL   = "https://etlagrvacikinnihpyss.supabase.co";  
-const char* SUPABASE_KEY   = "sb_publishable_2T_CWwn_6_jdKV1q4mY4Eg_z7S_jPEE";
+// Supabase Credentials
+const char* SUPABASE_HOST = "https://etlagrvacikinnihpyss.supabase.co";
+const char* SUPABASE_KEY  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV0bGFncnZhY2lraW5uaWhweXNzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODM3NTYsImV4cCI6MjA5MDg1OTc1Nn0.NJw0ZqIkySahrh0hNK2AfCAShDUaDE7RBLQ02_RiG0Q";
 
-// Your Custom Pin Configuration
-#define VOLTAGE_PIN   34    // Potentiometer 1
-#define CURRENT_PIN   35    // Potentiometer 2
-#define DHT_PIN       15    // DHT22 Data Pin
-#define RELAY_PIN     23    // Relay Module IN
-#define DHT_TYPE      DHT22
+// Pins
+#define VOLT_PIN  34
+#define CURR_PIN  35
+#define DHT_PIN   15
+#define RELAY_PIN 23
 
-// OLED Display Size
-#define SCREEN_WIDTH 128 
-#define SCREEN_HEIGHT 64 
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+Adafruit_SSD1306 display(128, 64, &Wire, -1);
+DHT dht(DHT_PIN, DHT22);
 
-DHT dht(DHT_PIN, DHT_TYPE);
+WiFiClient mqttWiFiClient;
+PubSubClient mqtt(mqttWiFiClient);
 
-
-
-unsigned long lastSendTime = 0;
-unsigned long lastRelayCheck = 0;
-bool relayState = false;
+void connectMQTT() {
+  while (!mqtt.connected()) {
+    Serial.print("Connecting to MQTT...");
+    // Create a random client ID
+    String clientId = "ESP32Client-";
+    clientId += String(random(0xffff), HEX);
+    if (mqtt.connect(clientId.c_str())) {
+      Serial.println("connected!");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(mqtt.state());
+      Serial.println(" try again in 2 seconds");
+      delay(2000);
+    }
+  }
+}
 
 void setup() {
   Serial.begin(115200);
-  
   pinMode(RELAY_PIN, OUTPUT);
-  digitalWrite(RELAY_PIN, LOW); // Relay OFF initially
-  pinMode(VOLTAGE_PIN, INPUT);
-  pinMode(CURRENT_PIN, INPUT);
-  
-  // Initialize OLED Display
-  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { 
-    Serial.println(F("SSD1306 allocation failed"));
-    for(;;);
-  }
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
-  display.setCursor(0,20);
-  display.println("SMART ENERGY");
-  display.println("MONITOR BOOTING...");
-  display.display();
+  digitalWrite(RELAY_PIN, LOW);
   
   dht.begin();
+  if (display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 20);
+    display.println("Connecting WiFi...");
+    display.display();
+  }
+
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(300);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi Connected!");
   
-  connectWiFi();
+  mqtt.setServer("broker.emqx.io", 1883);
 }
 
 void loop() {
-  if (WiFi.status() != WL_CONNECTED) connectWiFi();
-  
-  // SWEET SPOT RESTORED: Check relay every 1.5 seconds 
-  if (millis() - lastRelayCheck >= 1500) {
-    lastRelayCheck = millis();
-    checkRelayStatus();
-  }
-
-  // SWEET SPOT RESTORED: Update sensors every 1.5 seconds 
-  if (millis() - lastSendTime >= 1500) {
-    lastSendTime = millis();
-    
-    // Read Potentiometers to Simulate 0-260V and 0-30A
-    float voltage = (analogRead(VOLTAGE_PIN) / 4095.0) * 260.0;
-    float current = (analogRead(CURRENT_PIN) / 4095.0) * 30.0;
-    
-    // Read DHT22
-    float temperature = dht.readTemperature();
-    float humidity = dht.readHumidity();
-    float power = voltage * current;
-
-    // Update OLED Display
-    updateDisplay(voltage, current, power, temperature, relayState);
-
-    // Send to Supabase Dashboard
-    sendToSupabase(voltage, current, temperature, humidity, power);
-  }
-}
-
-void updateDisplay(float v, float c, float p, float t, bool isRelayOn) {
-  display.clearDisplay();
-  
-  // Header
-  display.setTextSize(1);
-  display.setCursor(0,0);
-  display.print("SMART ENERGY MONITOR");
-  
-  // Power Status
-  display.setCursor(0, 15);
-  display.print("V: "); display.print(v, 1); display.print("V");
-  display.setCursor(64, 15);
-  display.print("I: "); display.print(c, 2); display.print("A");
-  
-  // Total Power
-  display.setTextSize(2);
-  display.setCursor(0, 30);
-  display.print(p, 0); display.print(" W");
-  
-  // Footer
-  display.setTextSize(1);
-  display.setCursor(0, 52);
-  display.print("Temp: "); display.print(t, 1); display.print("C");
-  
-  display.setCursor(80, 52);
-  if (isRelayOn) {
-    display.print("[ON]");
-  } else {
-    display.print("[OFF]");
-  }
-  
-  display.display();
-}
-
-void connectWiFi() {
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  display.clearDisplay();
-  display.setCursor(0,25);
-  display.print("Connecting WiFi...");
-  display.display();
-  
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500); Serial.print(".");
-  }
-  display.clearDisplay();
-}
-
-void sendToSupabase(float v, float c, float t, float h, float p) {
   if (WiFi.status() != WL_CONNECTED) return;
   
-  WiFiClientSecure client;
-  client.setInsecure(); // Skip SSL check
-  
-  HTTPClient http;
-  String url = String(SUPABASE_URL) + "/rest/v1/sensor_data";
-  
-  http.begin(client, url); 
-  
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("apikey", SUPABASE_KEY);
-  http.addHeader("Authorization", String("Bearer ") + SUPABASE_KEY);
-  http.addHeader("Prefer", "return=minimal");
-  
-  StaticJsonDocument<200> doc;
-  doc["voltage"] = v;
-  doc["current"] = c;
-  doc["temperature"] = t;
-  doc["humidity"] = h;
-  doc["power"] = p;
-  
-  String payload;
-  serializeJson(doc, payload);
-  int httpCode = http.POST(payload);
-  http.end();
-  client.stop();
-  
-  if(httpCode == 201) {
-      Serial.println("✅ Sent to Web Dashboard!");
-  } else {
-      Serial.print("⚠️ Transmission Failed - Error Code: ");
-      Serial.print(httpCode);
-      Serial.print(" (");
-      Serial.print(http.errorToString(httpCode).c_str());
-      Serial.println(")");
+  if (!mqtt.connected()) {
+    connectMQTT();
   }
-}
+  mqtt.loop();
 
-void checkRelayStatus() {
-  if (WiFi.status() != WL_CONNECTED) return;
+  // 1. Read Sensors
+  float v = (analogRead(VOLT_PIN) / 4095.0f) * 260.0f;
+  float c = (analogRead(CURR_PIN) / 4095.0f) * 30.0f;
+  float p = v * c;
+  float t = dht.readTemperature();
+  float h = dht.readHumidity();
+  if (isnan(t)) t = 0;
+  if (isnan(h)) h = 0;
 
+  // 2. Update Display
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.setTextSize(1);
+  display.println("ENERGY MONITOR");
+  display.setCursor(0, 16);
+  display.printf("V: %.1fV  I: %.2fA\n", v, c);
+  display.printf("P: %.1f W\n", p);
+  display.printf("T: %.1fC  H: %.1f%%", t, h);
+  display.display();
+
+  // 3. HTTP Client request (using WiFiClientSecure for HTTPS)
   WiFiClientSecure client;
-  client.setInsecure(); // Skip SSL check
+  client.setInsecure();
   
   HTTPClient http;
-  String url = String(SUPABASE_URL) + "/rest/v1/control?id=eq.1&select=relay_status";
+  String postUrl = String(SUPABASE_HOST) + "/rest/v1/sensor_data";
   
-  http.begin(client, url); 
-  
-  http.addHeader("apikey", SUPABASE_KEY);
-  http.addHeader("Authorization", String("Bearer ") + SUPABASE_KEY);
-  int httpCode = http.GET();
-  
-  if (httpCode == 200) {
+  // Set generous connection timeout
+  http.setConnectTimeout(10000);
+  http.setTimeout(10000);
+
+  if (http.begin(client, postUrl)) {
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("apikey", SUPABASE_KEY);
+    http.addHeader("Authorization", String("Bearer ") + SUPABASE_KEY);
+    http.addHeader("Prefer", "return=minimal");
+
     StaticJsonDocument<200> doc;
-    deserializeJson(doc, http.getString());
-    bool newRelayState = doc[0]["relay_status"];
+    doc["voltage"] = v;
+    doc["current"] = c;
+    doc["power"] = p;
+    doc["temperature"] = t;
+    doc["humidity"] = h;
+    String json;
+    serializeJson(doc, json);
     
-    if (newRelayState != relayState) {
-      relayState = newRelayState;
-      digitalWrite(RELAY_PIN, relayState ? HIGH : LOW);
-      Serial.printf("🔌 Relay Toggled by Web Dashboard: %s\n", relayState ? "ON" : "OFF");
-  } else {
-    Serial.print("⚠️ Relay Check Failed - Error Code: ");
-    Serial.print(httpCode);
-    Serial.print(" (");
-    Serial.print(http.errorToString(httpCode).c_str());
-    Serial.println(")");
+    // Publish realtime data over MQTT
+    mqtt.publish("teksem/energy/data", json.c_str());
+
+    int code = http.POST(json);
+    Serial.printf("POST Data Status: %d\n", code);
+    http.end();
   }
-  http.end();
-  client.stop();
+
+  // 4. Read Relay Status
+  String getUrl = String(SUPABASE_HOST) + "/rest/v1/control?id=eq.1&select=relay_status";
+  if (http.begin(client, getUrl)) {
+    http.addHeader("apikey", SUPABASE_KEY);
+    http.addHeader("Authorization", String("Bearer ") + SUPABASE_KEY);
+
+    int code = http.GET();
+    if (code == 200) {
+      StaticJsonDocument<200> doc;
+      if (!deserializeJson(doc, http.getString()) && doc.is<JsonArray>() && doc.size() > 0) {
+        bool state = doc[0]["relay_status"].as<bool>();
+        digitalWrite(RELAY_PIN, state ? HIGH : LOW);
+        Serial.printf("Relay Status: %s\n", state ? "ON" : "OFF");
+      }
+    }
+    http.end();
+  }
+
+  delay(5000);
 }

@@ -1,0 +1,8 @@
+[wokwi]
+version = 1
+firmware = "smart_energy_monitor.ino.bin"
+elf = "smart_energy_monitor.ino.elf"
+
+# Enable internet access through your local machine's network
+[[network]]
+name = "Wokwi-GUEST"
