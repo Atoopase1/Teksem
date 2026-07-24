@@ -48,6 +48,7 @@
   // ============================================
   var state = {
     relayOn: true,   // Default ON — mirrors NC relay (load powered at startup)
+    userManualOff: false, // true = user deliberately turned load OFF — blocks auto-restore snapping UI back
     lastUpdate: null,
     startTime: Date.now(),
     connected: false,
@@ -232,6 +233,11 @@
     var relayToggle = document.getElementById('relay-toggle');
     relayToggle.addEventListener('change', function (e) {
       var newState = e.target.checked;
+
+      // Track whether user deliberately turned load OFF
+      // so auto-restore from ESP32 doesn't snap it back
+      state.userManualOff = !newState; // true when turning OFF, false when turning ON
+
       // Publish relay command over MQTT to the ESP32
       if (mqttClient && mqttClient.connected) {
         var payload = JSON.stringify({ relay: newState });
@@ -455,7 +461,8 @@
           var st = statusMsg.status;
 
           if (st === 'force_off') {
-            // Fault — snap UI to OFF and lock the toggle
+            // Fault — ESP32 took control, clear manual flag so auto-restore can work
+            state.userManualOff = false;
             state.relayOn = false;
             updateRelayUI(false);
             setRelayFaultLock(true);
@@ -464,6 +471,7 @@
 
           } else if (st === 'critical_warning') {
             // Warning — load ON but unlock and warn
+            state.userManualOff = false;
             state.relayOn = true;
             updateRelayUI(true);
             setRelayFaultLock(false);
@@ -471,13 +479,18 @@
             console.warn('Relay critical warning:', statusMsg.reason);
 
           } else if (st === 'on') {
-            // Load restored (auto or manual) — unlock toggle, show ON
-            state.relayOn = true;
-            updateRelayUI(true);
-            setRelayFaultLock(false);
+            // Only snap UI to ON if the user didn't manually turn it off
+            // (prevents auto-restore from overriding user's intent)
+            if (!state.userManualOff) {
+              state.relayOn = true;
+              updateRelayUI(true);
+              setRelayFaultLock(false);
+            } else {
+              console.log('Auto-restore ignored — user manually turned load OFF');
+            }
 
           } else if (st === 'off') {
-            // Load turned off manually — unlock toggle, show OFF
+            // Load turned off — update UI (could be from ESP32 acknowledging our command)
             state.relayOn = false;
             updateRelayUI(false);
             setRelayFaultLock(false);
