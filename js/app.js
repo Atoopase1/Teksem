@@ -381,7 +381,7 @@
       }
 
       // REALTIME SUBSCRIPTIONS
-      setupRealtimeSubscriptions();
+      // setupRealtimeSubscriptions(); // Disabled: relying purely on MQTT for stability
 
       state.connected = true;
       updateConnectionStatus(true);

@@ -27,6 +27,7 @@ DHT dht(DHT_PIN, DHT22);
 
 WiFiClient mqttWiFiClient;
 PubSubClient mqtt(mqttWiFiClient);
+WiFiClientSecure httpsClient;
 
 void connectMQTT() {
   while (!mqtt.connected()) {
@@ -67,7 +68,9 @@ void setup() {
   }
   Serial.println("\nWiFi Connected!");
   
+  httpsClient.setInsecure(); // Set globally once
   mqtt.setServer("broker.emqx.io", 1883);
+  mqtt.setKeepAlive(60); // 60-second keepalive
 }
 
 void loop() {
@@ -98,18 +101,15 @@ void loop() {
   display.printf("T: %.1fC  H: %.1f%%", t, h);
   display.display();
 
-  // 3. HTTP Client request (using WiFiClientSecure for HTTPS)
-  WiFiClientSecure client;
-  client.setInsecure();
-  
+  // 3. HTTP Client request
   HTTPClient http;
   String postUrl = String(SUPABASE_HOST) + "/rest/v1/sensor_data";
   
-  // Set generous connection timeout
-  http.setConnectTimeout(10000);
-  http.setTimeout(10000);
+  // Use shorter timeouts so it doesn't block MQTT if Supabase is slow
+  http.setConnectTimeout(3000);
+  http.setTimeout(3000);
 
-  if (http.begin(client, postUrl)) {
+  if (http.begin(httpsClient, postUrl)) {
     http.addHeader("Content-Type", "application/json");
     http.addHeader("apikey", SUPABASE_KEY);
     http.addHeader("Authorization", String("Bearer ") + SUPABASE_KEY);
@@ -126,6 +126,7 @@ void loop() {
     
     // Publish realtime data over MQTT
     mqtt.publish("teksem/energy/data", json.c_str());
+    mqtt.loop(); // Process outgoing MQTT messages immediately
 
     int code = http.POST(json);
     Serial.printf("POST Data Status: %d\n", code);
@@ -134,7 +135,7 @@ void loop() {
 
   // 4. Read Relay Status
   String getUrl = String(SUPABASE_HOST) + "/rest/v1/control?id=eq.1&select=relay_status";
-  if (http.begin(client, getUrl)) {
+  if (http.begin(httpsClient, getUrl)) {
     http.addHeader("apikey", SUPABASE_KEY);
     http.addHeader("Authorization", String("Bearer ") + SUPABASE_KEY);
 
@@ -150,5 +151,10 @@ void loop() {
     http.end();
   }
 
-  delay(5000);
+  // 5. Non-blocking delay (keeps MQTT alive while waiting 5 seconds)
+  unsigned long startWait = millis();
+  while (millis() - startWait < 5000) {
+    mqtt.loop();
+    delay(10);
+  }
 }
