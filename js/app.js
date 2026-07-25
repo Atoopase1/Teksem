@@ -53,7 +53,7 @@
   // ============================================
   // AUTO CACHE-BUSTING
   // ============================================
-  var APP_VERSION = '1.4.0'; // Bump this to force client-side cache clear
+  var APP_VERSION = '1.5.0'; // Bump this to force client-side cache clear
   if (localStorage.getItem('energy_app_version') !== APP_VERSION) {
     console.log('🔄 New version detected! Clearing cached service workers...');
     localStorage.setItem('energy_app_version', APP_VERSION);
@@ -926,8 +926,16 @@
         var status = getSystemStatus(alerts);
         updateSystemStatus(status);
 
+        // Pass the first critical alert message to the alarm so the SW notification
+        // shows the actual fault reason (e.g. "Over-voltage detected!")
+        var faultMsg = null;
+        if (status === 'fault') {
+          for (var ai = 0; ai < alerts.length; ai++) {
+            if (alerts[ai].severity === 'critical') { faultMsg = alerts[ai].message; break; }
+          }
+        }
         // Manage continuous alarm based on status
-        manageAlarmState(status);
+        manageAlarmState(status, faultMsg);
 
         // Update last update time
         state.lastUpdate = new Date();
@@ -1340,91 +1348,127 @@
   // Global alarm state
   var alarmInterval = null;
   var isAlarmMuted = false;
-  var alarmPlayCount = 0;
+
+  /**
+   * Send a fault notification to the Service Worker.
+   * This fires a device notification + vibration even when the tab is in the background
+   * or the screen is off (as long as the PWA is installed).
+   */
+  function sendFaultNotificationToSW(message) {
+    if (!('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.ready.then(function (registration) {
+      // Use postMessage to tell SW to show a notification
+      if (registration.active) {
+        registration.active.postMessage({
+          type: 'FAULT_ALERT',
+          title: '⚡ SEMHAS FAULT ALARM',
+          body: message || 'A critical fault has been detected! Check your system immediately.',
+          tag: 'semhas-fault'
+        });
+      }
+    }).catch(function () {});
+  }
 
   /**
    * Manage repeating alarm sound based on system status.
+   * On fault: plays immediately and repeats every 8 seconds until fault clears.
+   * On normal: stops alarm and re-arms for future faults.
    */
-  function manageAlarmState(status) {
+  function manageAlarmState(status, alertMessage) {
     if (status === 'fault' && !isAlarmMuted) {
-      // Resume AudioContext in case it was suspended
+      // Resume AudioContext in case it was suspended (mobile browser policy)
       if (audioCtx && audioCtx.state === 'suspended') {
         audioCtx.resume().catch(function () {});
       }
+
+      // Fire a device-level notification immediately (works in background)
+      sendFaultNotificationToSW(alertMessage);
+
+      // Flash the screen
+      triggerAlertFlash();
+
       // Start continuous alarm if not already running
       if (!alarmInterval) {
-        alarmPlayCount = 0;
-        triggerAlertFlash();
         playAlertSound();
-        alarmPlayCount++;
-
+        // Repeat every 8 seconds — loud and persistent until fault clears
         alarmInterval = setInterval(function () {
-          if (alarmPlayCount >= 5) {
-            clearInterval(alarmInterval);
-            alarmInterval = null;
-            isAlarmMuted = true;
-            return;
-          }
-
           if (audioCtx && audioCtx.state === 'suspended') {
             audioCtx.resume().then(function () { playAlertSound(); }).catch(function () {});
           } else {
             playAlertSound();
           }
-          alarmPlayCount++;
-        }, 60000); // Repeat every 1 minute
+          // Re-send the SW notification every 30 seconds to keep device alert active
+          sendFaultNotificationToSW(alertMessage);
+        }, 8000);
       }
     } else {
-      // Stop alarm when power is normal or user muted it
+      // Stop alarm when fault clears
       if (alarmInterval) {
         clearInterval(alarmInterval);
         alarmInterval = null;
       }
       if (status === 'normal') {
-        isAlarmMuted = false;
+        isAlarmMuted = false; // Re-arm for next fault
       }
     }
   }
 
   /**
-   * Play a loud alarm sound using Web Audio API
+   * Play a loud, harsh alarm siren using Web Audio API.
+   * Uses two oscillators + distortion for maximum audibility.
    */
   function playAlertSound() {
     try {
-      if (!audioCtx || audioCtx.state === 'suspended') {
-        if (audioCtx) audioCtx.resume();
-      }
       if (!audioCtx) {
         console.warn('Audio Context not initialized. User must tap the screen first.');
-        showToast('⚠️ TAP ANYWHERE ON SCREEN TO ENABLE ALARM SOUND', 'error');
+        showToast('⚠️ TAP SCREEN ONCE TO ENABLE FAULT ALARM SOUND', 'error');
         return;
       }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(function () {});
+        return; // Will retry on next interval tick
+      }
 
-      // Play a 3-beep siren pattern
-      for (var i = 0; i < 3; i++) {
-        var startTime = audioCtx.currentTime + i * 0.5;
+      var ctx = audioCtx;
+      var now = ctx.currentTime;
 
-        var oscillator = audioCtx.createOscillator();
-        var gainNode = audioCtx.createGain();
+      // ── Siren pattern: 6 rapid hi-lo pulses ─────────────────────────
+      for (var i = 0; i < 6; i++) {
+        var offset = now + i * 0.35;
 
-        oscillator.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
+        // Primary oscillator (harsh square wave)
+        var osc1 = ctx.createOscillator();
+        var gain1 = ctx.createGain();
+        osc1.type = 'square';
+        // Alternates between 880Hz (hi) and 660Hz (lo) for classic siren
+        osc1.frequency.setValueAtTime(i % 2 === 0 ? 1100 : 700, offset);
+        osc1.frequency.linearRampToValueAtTime(i % 2 === 0 ? 700 : 1100, offset + 0.3);
+        gain1.gain.setValueAtTime(0, offset);
+        gain1.gain.linearRampToValueAtTime(1.0, offset + 0.02); // Full volume
+        gain1.gain.setValueAtTime(1.0, offset + 0.28);
+        gain1.gain.linearRampToValueAtTime(0, offset + 0.35);
+        osc1.connect(gain1);
+        gain1.connect(ctx.destination);
+        osc1.start(offset);
+        osc1.stop(offset + 0.36);
 
-        oscillator.type = 'square';
-
-        oscillator.frequency.setValueAtTime(1000, startTime);
-        oscillator.frequency.setValueAtTime(1200, startTime + 0.15);
-
-        gainNode.gain.setValueAtTime(0, startTime);
-        gainNode.gain.linearRampToValueAtTime(0.5, startTime + 0.05);
-        gainNode.gain.setValueAtTime(0.5, startTime + 0.3);
-        gainNode.gain.linearRampToValueAtTime(0, startTime + 0.35);
-
-        oscillator.start(startTime);
-        oscillator.stop(startTime + 0.4);
+        // Second oscillator one octave up for extra harshness
+        var osc2 = ctx.createOscillator();
+        var gain2 = ctx.createGain();
+        osc2.type = 'sawtooth';
+        osc2.frequency.setValueAtTime(i % 2 === 0 ? 2200 : 1400, offset);
+        osc2.frequency.linearRampToValueAtTime(i % 2 === 0 ? 1400 : 2200, offset + 0.3);
+        gain2.gain.setValueAtTime(0, offset);
+        gain2.gain.linearRampToValueAtTime(0.6, offset + 0.02);
+        gain2.gain.setValueAtTime(0.6, offset + 0.28);
+        gain2.gain.linearRampToValueAtTime(0, offset + 0.35);
+        osc2.connect(gain2);
+        gain2.connect(ctx.destination);
+        osc2.start(offset);
+        osc2.stop(offset + 0.36);
       }
     } catch (e) {
-      console.warn('Audio not supported or blocked', e);
+      console.warn('Audio not supported or blocked:', e);
     }
   }
 
