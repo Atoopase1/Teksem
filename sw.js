@@ -58,7 +58,7 @@ self.addEventListener('fetch', event => {
 self.addEventListener('message', event => {
   if (!event.data || event.data.type !== 'FAULT_ALERT') return;
 
-  const title = event.data.title || '⚡ SEMHAS FAULT ALARM';
+  const title = event.data.title || 'SEMHAS FAULT ALARM';
   const body  = event.data.body  || 'Critical fault detected! Check your system immediately.';
   const tag   = event.data.tag   || 'semhas-fault';
 
@@ -103,7 +103,7 @@ self.addEventListener('notificationclick', event => {
 // ============================================
 self.addEventListener('push', event => {
   let data = {
-    title: '⚡ SEMHAS Fault Alarm',
+    title: 'SEMHAS Fault Alarm',
     body:  'A fault has been detected! Open the app immediately.',
     icon:  '/icon-192.png'
   };

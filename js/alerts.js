@@ -167,7 +167,7 @@
         var currentPct = Math.round((data.current / THRESHOLDS.CURRENT_FAULT) * 100);
         alerts.push({
           type:        'warning',
-          message:     '⚠️ Current approaching limit: ' + data.current.toFixed(2) + 'A — ' +
+          message:     '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: text-bottom; margin-right: 4px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg> Current approaching limit: ' + data.current.toFixed(2) + 'A — ' +
                        currentPct + '% of your ' + THRESHOLDS.CURRENT_FAULT + 'A limit.',
           severity:    'warning',
           autoShutoff: false
@@ -189,7 +189,7 @@
         var powerPct = Math.round((data.power / THRESHOLDS.POWER_FAULT) * 100);
         alerts.push({
           type:        'warning',
-          message:     '⚠️ Power approaching your limit: ' + data.power.toFixed(0) + 'W — ' +
+          message:     '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: text-bottom; margin-right: 4px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg> Power approaching your limit: ' + data.power.toFixed(0) + 'W — ' +
                        powerPct + '% of your ' + THRESHOLDS.POWER_FAULT + 'W limit. Relay will shut off at limit!',
           severity:    'warning',
           autoShutoff: false

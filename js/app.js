@@ -558,7 +558,7 @@
             state.relayOn = false;
             updateRelayUI(false);
             setRelayFaultLock(true);
-            showToast('\u26a1 FAULT: ' + (statusMsg.reason || 'Load disconnected by ESP32'), 'error');
+            showToast('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: text-bottom; margin-right: 4px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg> FAULT: ' + (statusMsg.reason || 'Load disconnected by ESP32'), 'error');
             console.warn('Relay force-off received:', statusMsg.reason);
 
           } else if (st === 'critical_warning') {
@@ -567,7 +567,7 @@
             state.relayOn = true;
             updateRelayUI(true);
             setRelayFaultLock(false);
-            showToast('\u26a0\ufe0f WARNING: ' + (statusMsg.reason || 'Load ON under warning conditions'), 'error');
+            showToast('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: text-bottom; margin-right: 4px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg> WARNING: ' + (statusMsg.reason || 'Load ON under warning conditions'), 'error');
             console.warn('Relay critical warning:', statusMsg.reason);
 
           } else if (st === 'on') {
@@ -1361,7 +1361,7 @@
       if (registration.active) {
         registration.active.postMessage({
           type: 'FAULT_ALERT',
-          title: '⚡ SEMHAS FAULT ALARM',
+          title: 'SEMHAS FAULT ALARM',
           body: message || 'A critical fault has been detected! Check your system immediately.',
           tag: 'semhas-fault'
         });
@@ -1421,7 +1421,7 @@
     try {
       if (!audioCtx) {
         console.warn('Audio Context not initialized. User must tap the screen first.');
-        showToast('⚠️ TAP SCREEN ONCE TO ENABLE FAULT ALARM SOUND', 'error');
+        showToast('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: text-bottom; margin-right: 4px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg> TAP SCREEN ONCE TO ENABLE FAULT ALARM SOUND', 'error');
         return;
       }
       if (audioCtx.state === 'suspended') {
@@ -1547,7 +1547,7 @@
 
     var toast = document.createElement('div');
     toast.className = 'toast ' + type;
-    toast.textContent = message;
+    toast.innerHTML = message;
     document.body.appendChild(toast);
 
     setTimeout(function () {
