@@ -507,7 +507,19 @@
       return;
     }
     
-    var client = mqtt.connect(brokerUrl);
+    // Explicitly configure auto-reconnect for maximum resilience against network/system drops
+    var options = {
+      keepalive: 30,
+      clientId: 'teksem_web_' + Math.random().toString(16).substr(2, 8),
+      protocolId: 'MQTT',
+      protocolVersion: 4,
+      clean: true,
+      reconnectPeriod: 3000, // Attempt reconnect every 3 seconds if disconnected
+      connectTimeout: 30 * 1000,
+      rejectUnauthorized: false
+    };
+    
+    var client = mqtt.connect(brokerUrl, options);
     mqttClient = client; // Store globally for relay publishing
     window._mqttClient = client; // Expose for alerts.js auto-shutoff
     
@@ -582,7 +594,19 @@
     });
     
     client.on('error', function (err) {
-      console.warn('MQTT Error:', err);
+      console.warn('⚠️ MQTT Error:', err);
+    });
+
+    client.on('reconnect', function () {
+      console.log('🔄 MQTT auto-reconnecting...');
+    });
+
+    client.on('close', function () {
+      console.warn('❌ MQTT connection closed. Client will auto-reconnect.');
+    });
+
+    client.on('offline', function () {
+      console.warn('🌐 MQTT client went offline. Waiting for network...');
     });
   }
 
