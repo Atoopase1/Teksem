@@ -27,9 +27,33 @@
   var mqttClient = null; // Global MQTT client for publishing relay commands
 
   // ============================================
+  // ROLLING POWER BUFFER (for time-remaining prediction)
+  // ============================================
+  // Stores the last N power readings (watts) to compute a smoothed average.
+  // Using 60 samples ≈ last 60 sensor messages (≈ 1 min at 1 msg/sec).
+  var POWER_BUFFER_SIZE = 60;
+  var powerReadingBuffer = [];
+
+  function recordPowerReading(watts) {
+    if (watts > 0) {
+      powerReadingBuffer.push(watts);
+      if (powerReadingBuffer.length > POWER_BUFFER_SIZE) {
+        powerReadingBuffer.shift(); // drop oldest
+      }
+    }
+  }
+
+  function getSmoothedPower() {
+    if (powerReadingBuffer.length === 0) return 0;
+    var sum = 0;
+    for (var i = 0; i < powerReadingBuffer.length; i++) sum += powerReadingBuffer[i];
+    return sum / powerReadingBuffer.length;
+  }
+
+  // ============================================
   // AUTO CACHE-BUSTING
   // ============================================
-  var APP_VERSION = '1.2.3'; // Bump this to force client-side cache clear
+  var APP_VERSION = '1.4.0'; // Bump this to force client-side cache clear
   if (localStorage.getItem('energy_app_version') !== APP_VERSION) {
     console.log('🔄 New version detected! Clearing cached service workers...');
     localStorage.setItem('energy_app_version', APP_VERSION);
@@ -61,6 +85,15 @@
     realtimeChannels: [],
     pendingRafUpdate: false
   };
+
+  // ============================================
+  // ADVANCED FEATURES STATE
+  // ============================================
+  // Persists across reloads. Default = OFF.
+  var LS_ADV_KEY   = 'teksem_advanced_mode';
+  var advancedMode = (localStorage.getItem(LS_ADV_KEY) === 'true');
+  // Expose immediately so alerts.js reads the correct value from first sensor message
+  window._advancedMode = advancedMode;
 
   // ============================================
   // INITIALIZATION
@@ -279,9 +312,9 @@
     var powerInput = document.getElementById('limit-power-input');
     var currentInput = document.getElementById('limit-current-input');
 
-    // Set initial values
+    // Set initial values from THRESHOLDS (which already loaded from localStorage)
     if (powerInput && currentInput) {
-      powerInput.value = THRESHOLDS.POWER_FAULT;
+      powerInput.value   = THRESHOLDS.POWER_FAULT;
       currentInput.value = THRESHOLDS.CURRENT_FAULT;
     }
 
@@ -301,7 +334,14 @@
         updateLimits(pValue, cValue).then(function () {
           limitsBtn.disabled = false;
           limitsBtn.textContent = 'Save Limits';
-          showToast('Limits updated: Power ' + pValue + 'W, Current ' + cValue + 'A', 'success');
+          // Refresh displayed inputs to reflect any rounding
+          if (powerInput)   powerInput.value   = THRESHOLDS.POWER_FAULT;
+          if (currentInput) currentInput.value = THRESHOLDS.CURRENT_FAULT;
+          showToast(
+            '✅ Limits saved — Power: ' + THRESHOLDS.POWER_FAULT + 'W (warn at ' +
+            THRESHOLDS.POWER_WARNING + 'W), Current: ' + THRESHOLDS.CURRENT_FAULT + 'A',
+            'success'
+          );
         });
       });
     }
@@ -344,6 +384,45 @@
     } else {
       sunIcon.classList.remove('hidden');
       moonIcon.classList.add('hidden');
+    }
+
+    // Advanced Features toggle
+    var advBtn = document.getElementById('advanced-features-btn');
+    if (advBtn) {
+      // Apply saved state immediately
+      applyAdvancedMode(advancedMode, true /* silent */);
+
+      advBtn.addEventListener('click', function () {
+        advancedMode = !advancedMode;
+        localStorage.setItem(LS_ADV_KEY, advancedMode);
+        applyAdvancedMode(advancedMode, false);
+      });
+    }
+  }
+
+  /**
+   * Apply (or remove) advanced features mode.
+   * @param {boolean} on     - true = advanced ON
+   * @param {boolean} silent - true = skip the toast (used on page load)
+   */
+  function applyAdvancedMode(on, silent) {
+    var btn        = document.getElementById('advanced-features-btn');
+    var energyWrap = document.getElementById('adv-energy-wrap');
+    var limitsWrap = document.getElementById('adv-limits-wrap');
+
+    // Expose globally so alerts.js can read it
+    window._advancedMode = on;
+
+    if (on) {
+      if (btn)         btn.classList.add('active');
+      if (energyWrap)  energyWrap.classList.remove('adv-hidden');
+      if (limitsWrap)  limitsWrap.classList.remove('adv-hidden');
+      if (!silent) showToast('⚡ Advanced Features ON — Energy & Limits enabled', 'success');
+    } else {
+      if (btn)         btn.classList.remove('active');
+      if (energyWrap)  energyWrap.classList.add('adv-hidden');
+      if (limitsWrap)  limitsWrap.classList.add('adv-hidden');
+      if (!silent) showToast('Advanced Features OFF — core monitoring only', 'info');
     }
   }
 
@@ -392,10 +471,10 @@
         renderAlerts();
       }
 
-      // Apply latest sensor data
-      if (sensorResult.data) {
-        processSensorData(sensorResult.data);
-      }
+      // DO NOT pre-populate sensor cards with stale Supabase data.
+      // Sensor values are only updated from live MQTT messages.
+      // (sensorResult is intentionally ignored for display purposes)
+
 
       // REALTIME SUBSCRIPTIONS
       // setupRealtimeSubscriptions(); // Disabled: relying purely on MQTT for stability
@@ -430,6 +509,7 @@
     
     var client = mqtt.connect(brokerUrl);
     mqttClient = client; // Store globally for relay publishing
+    window._mqttClient = client; // Expose for alerts.js auto-shutoff
     
     client.on('connect', function () {
       console.log('✅ Connected to MQTT Broker via WebSockets');
@@ -615,21 +695,100 @@
   }
 
   /**
-   * Stale data detection — adds visual indicator when data is old
+   * Stale data detection.
+   * - If the app has just started and NEVER received live MQTT data → show No Power.
+   * - If live data was received but then stopped for >15 s → show No Power / signal lost.
+   * - When live data resumes → restore values and hide banner.
    */
   var STALE_THRESHOLD_MS = 15000; // 15 seconds
+  var noPowerActive = false;      // true while the no-power state is shown
+
+  // Track whether ANY live MQTT reading has been received since page load
+  var liveDataEverReceived = false;
+
+  function markLiveDataReceived() {
+    liveDataEverReceived = true;
+    if (noPowerActive) restorePowerMode();
+  }
 
   function startStaleDetection() {
+    // On startup: if no data arrives within STALE_THRESHOLD_MS, enter no-power mode
+    var startupTimer = setTimeout(function () {
+      if (!liveDataEverReceived && !isDemoMode) {
+        enterNoPowerMode('no_power');
+      }
+    }, STALE_THRESHOLD_MS);
+
     setInterval(function () {
+      if (isDemoMode) return;
+
       var cards = document.querySelectorAll('.sensor-card');
-      if (!state.lastUpdate) return;
+
+      if (!state.lastUpdate || !liveDataEverReceived) {
+        // Still waiting for first reading
+        return;
+      }
+
       var age = Date.now() - state.lastUpdate.getTime();
-      if (age > STALE_THRESHOLD_MS && !isDemoMode) {
+
+      if (age > STALE_THRESHOLD_MS) {
+        // Data stopped — enter no-power mode
         for (var i = 0; i < cards.length; i++) cards[i].classList.add('stale');
+        if (!noPowerActive) enterNoPowerMode('signal_lost');
       } else {
+        // Data is fresh
         for (var i = 0; i < cards.length; i++) cards[i].classList.remove('stale');
+        if (noPowerActive) restorePowerMode();
       }
     }, 3000);
+  }
+
+  /**
+   * Enter no-power mode: zero all sensor values and show the banner.
+   * reason: 'no_power' (never received data) | 'signal_lost' (data stopped)
+   */
+  function enterNoPowerMode(reason) {
+    if (noPowerActive) return;
+    noPowerActive = true;
+
+    // Zero all sensor display values
+    var zeroData = { voltage: 0, current: 0, power: 0, temperature: 0, humidity: 0 };
+    updateSensorValues(zeroData);
+
+    // Show no-power banner
+    var banner = document.getElementById('no-power-banner');
+    if (banner) {
+      banner.classList.remove('hidden');
+      var msg = banner.querySelector('#no-power-msg');
+      if (msg) {
+        if (reason === 'no_power') {
+          msg.textContent = 'No power detected — waiting for ESP32 to connect via MQTT';
+        } else {
+          msg.textContent = 'Signal lost — no data received for 15 s. Check ESP32 connection.';
+        }
+      }
+    }
+
+    // Update system status badge
+    updateSystemStatus('fault');
+
+    console.warn('⚠️ No-power mode entered. Reason:', reason);
+  }
+
+  /**
+   * Exit no-power mode: hide the banner and restore live UI.
+   */
+  function restorePowerMode() {
+    noPowerActive = false;
+
+    var banner = document.getElementById('no-power-banner');
+    if (banner) banner.classList.add('hidden');
+
+    // Remove stale class from all cards
+    var cards = document.querySelectorAll('.sensor-card');
+    for (var i = 0; i < cards.length; i++) cards[i].classList.remove('stale');
+
+    console.log('✅ Power restored — live data resumed.');
   }
 
   /**
@@ -679,9 +838,12 @@
     // Calculate power if not provided
     var power = data.power || (data.voltage * data.current);
 
+    // ── Record power reading into rolling buffer (for time prediction) ──
+    recordPowerReading(power);
+
     // ── Accumulate energy_used from live power readings ──────────
-    // Wh = W × h; we convert the elapsed seconds to hours
-    if (!isDemoMode && lastEnergyUpdateTime !== null && power > 0) {
+    // Only runs when Advanced Features is ON (energy tracking is an advanced feature)
+    if (advancedMode && !isDemoMode && lastEnergyUpdateTime !== null && power > 0) {
       var elapsedHours = (Date.now() - lastEnergyUpdateTime) / 3600000;
       var deltaKWh = (power / 1000) * elapsedHours;
 
@@ -689,7 +851,7 @@
         var newUsed      = (state.energy.energy_used || 0) + deltaKWh;
         var newRemaining = Math.max(0, (state.energy.total_energy_bought || 0) - newUsed);
 
-        // Local optimistic update only — no Supabase sync
+        // Local optimistic update only — no Supabase sync needed for live tracking
         state.energy.energy_used      = newUsed;
         state.energy.energy_remaining = newRemaining;
         updateEnergyUI();
@@ -697,6 +859,9 @@
     }
     lastEnergyUpdateTime = Date.now();
     // ─────────────────────────────────────────────────────────────
+
+    // ── Notify stale-detection that live data arrived ──────────────
+    markLiveDataReceived();
 
     // Batch updates using requestAnimationFrame for performance
     if (!state.pendingRafUpdate) {
@@ -727,7 +892,8 @@
         addEnvironmentData(data.temperature, data.humidity);
 
         // Run alert analysis
-        var alerts = analyzeData(state.currentData, state.energy);
+        // Pass energy only when advanced mode is on — otherwise skip energy/limit alerts
+        var alerts = analyzeData(state.currentData, advancedMode ? state.energy : null);
         if (alerts.length > 0) {
           processAlerts(alerts);
         }
@@ -841,37 +1007,78 @@
 
   /**
    * Update energy balance UI
+   * Also computes an accurate time-remaining estimate using the smoothed
+   * rolling-average power consumption (avoids single-reading spikes).
    */
   function updateEnergyUI() {
-    var total = state.energy.total_energy_bought;
-    var used = state.energy.energy_used;
-    var remaining = state.energy.energy_remaining;
+    var total     = state.energy.total_energy_bought || 0;
+    var used      = state.energy.energy_used      || 0;
+    var remaining = state.energy.energy_remaining || 0;
 
-    document.getElementById('energy-bought').textContent = total.toFixed(2) + ' kWh';
-    document.getElementById('energy-used').textContent = used.toFixed(2) + ' kWh';
+    document.getElementById('energy-bought').textContent    = total.toFixed(2)     + ' kWh';
+    document.getElementById('energy-used').textContent      = used.toFixed(2)      + ' kWh';
     document.getElementById('energy-remaining').textContent = remaining.toFixed(2) + ' kWh';
+
+    // ── Time-remaining prediction ────────────────────────────────────
+    // Uses a rolling average of recent power readings for accuracy.
+    // Formula: hours_left = remaining_kWh / (avg_power_kW)
+    var timeEl = document.getElementById('energy-time-remaining');
+    if (timeEl) {
+      var avgPowerW = getSmoothedPower();
+      if (avgPowerW > 0 && remaining > 0) {
+        var hoursLeft = (remaining / (avgPowerW / 1000)); // kWh ÷ kW = hours
+        var daysLeft  = Math.floor(hoursLeft / 24);
+        var hrsLeft   = Math.floor(hoursLeft % 24);
+        var minsLeft  = Math.round((hoursLeft * 60) % 60);
+
+        var timeStr = '';
+        if (daysLeft > 0)       timeStr += daysLeft + 'd ';
+        if (hrsLeft  > 0)       timeStr += hrsLeft  + 'h ';
+        timeStr += minsLeft + 'm';
+
+        timeEl.textContent = '~' + timeStr + ' left';
+        timeEl.title       = 'Based on ' + avgPowerW.toFixed(0) + 'W average over last ' +
+                             powerReadingBuffer.length + ' readings';
+
+        // Colour-code urgency
+        if (hoursLeft < 1) {
+          timeEl.style.color = 'var(--color-danger)';
+        } else if (hoursLeft < 4) {
+          timeEl.style.color = 'var(--color-warning)';
+        } else {
+          timeEl.style.color = 'var(--color-normal)';
+        }
+      } else if (remaining <= 0) {
+        timeEl.textContent = 'Depleted';
+        timeEl.style.color = 'var(--color-danger)';
+      } else {
+        timeEl.textContent = 'Calculating...';
+        timeEl.style.color = 'var(--text-secondary)';
+      }
+    }
+    // ── End time-remaining ───────────────────────────────────────────
 
     // Progress bar
     var percent = total > 0
       ? Math.max(0, Math.min(100, (remaining / total) * 100))
       : 0;
 
-    var fill = document.getElementById('energy-progress-fill');
+    var fill        = document.getElementById('energy-progress-fill');
     var percentText = document.getElementById('energy-percent');
 
-    fill.style.width = percent + '%';
+    fill.style.width        = percent + '%';
     percentText.textContent = percent.toFixed(0) + '%';
 
     // Color-code based on remaining
     if (percent <= 10) {
-      fill.style.background = 'linear-gradient(90deg, #ff3b5c, #ff6b9d)';
-      percentText.style.color = 'var(--color-danger)';
+      fill.style.background      = 'linear-gradient(90deg, #ff3b5c, #ff6b9d)';
+      percentText.style.color    = 'var(--color-danger)';
     } else if (percent <= 25) {
-      fill.style.background = 'linear-gradient(90deg, #ffbe0b, #ffd166)';
-      percentText.style.color = 'var(--color-warning)';
+      fill.style.background      = 'linear-gradient(90deg, #ffbe0b, #ffd166)';
+      percentText.style.color    = 'var(--color-warning)';
     } else {
-      fill.style.background = 'var(--accent-gradient, var(--accent-primary))';
-      percentText.style.color = 'var(--accent-primary)';
+      fill.style.background      = 'var(--accent-gradient, var(--accent-primary))';
+      percentText.style.color    = 'var(--accent-primary)';
     }
   }
 
@@ -1233,31 +1440,32 @@
       return;
     }
 
-    supabase
-      .from('user_energy')
-      .select('energy_used')
-      .eq('id', 1)
-      .single()
-      .then(function (result) {
-        var energyUsed = result.data ? result.data.energy_used : 0;
+    // ── Optimistic local update (instant, no network wait) ───────────
+    var prevUsed      = state.energy.energy_used || 0;
+    var newRemaining  = Math.max(0, kWh - prevUsed);
+    state.energy.total_energy_bought = kWh;
+    state.energy.energy_remaining    = newRemaining;
+    updateEnergyUI();
+    // ────────────────────────────────────────────────────────────────
 
-        return supabase
-          .from('user_energy')
-          .update({
-            total_energy_bought: kWh,
-            energy_remaining: kWh - energyUsed
-          })
-          .eq('id', 1);
-      })
-      .then(function (result) {
-        if (result && result.error) {
-          console.error('Error updating energy:', result.error);
-          showToast('Failed to update energy balance', 'error');
-        }
-      })
-      .catch(function (err) {
-        console.error('Energy update failed:', err);
-      });
+    // Best-effort Supabase sync (non-critical)
+    if (supabase) {
+      supabase
+        .from('user_energy')
+        .update({
+          total_energy_bought: kWh,
+          energy_remaining:    newRemaining
+        })
+        .eq('id', 1)
+        .then(function (result) {
+          if (result && result.error) {
+            console.warn('Supabase energy sync failed (non-critical):', result.error);
+          }
+        })
+        .catch(function (err) {
+          console.warn('Energy sync error (non-critical):', err);
+        });
+    }
   }
 
   // ============================================

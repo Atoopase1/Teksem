@@ -19,6 +19,14 @@
   <meta name="google-site-verification" content="sk3Hm1wRQhXhx0Z-Dg0lxMs0HQudYUbN4maojIGSsPs" />
   <!-- Stylesheet -->
   <link rel="stylesheet" href="/css/style.css" />
+  <!-- Restore Advanced Features state before first paint (prevents flash) -->
+  <script>
+    (function(){
+      if(localStorage.getItem('teksem_advanced_mode')==='true'){
+        document.documentElement.setAttribute('data-adv','on');
+      }
+    })();
+  </script>
 </head>
 <body>
   <div id="app">
@@ -67,6 +75,20 @@
               <path d="M1 1l22 22M16.72 11.06A10.94 10.94 0 0119 12.55M5 12.55a10.94 10.94 0 015.17-2.39M10.71 5.05A16 16 0 0122.56 9M1.42 9a15.91 15.91 0 014.7-2.88M8.53 16.11a6 6 0 016.95 0M12 20h.01" />
             </svg>
           </button>
+
+          <!-- Advanced Features Toggle -->
+          <button id="advanced-features-btn" class="adv-btn" title="Toggle Advanced Features">
+            <span class="adv-btn-icon">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                <circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/>
+              </svg>
+            </span>
+            <span class="adv-btn-label">Advanced</span>
+            <span class="adv-btn-pill">
+              <span class="adv-btn-dot"></span>
+            </span>
+          </button>
+
           <button id="theme-toggle-btn" class="theme-toggle-btn" title="Toggle Theme">
             <svg id="sun-icon" class="hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="4.22" x2="19.78" y2="5.64"></line>
@@ -80,6 +102,20 @@
 
       <!-- Dashboard Content -->
       <main class="dashboard">
+        <!-- No Power / Signal Lost Banner -->
+        <div id="no-power-banner" class="no-power-banner hidden">
+          <div class="no-power-inner">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18.36 6.64a9 9 0 11-12.73 0M12 2v10"/>
+            </svg>
+            <div class="no-power-text">
+              <strong>No Power</strong>
+              <span id="no-power-msg">Waiting for ESP32 to connect via MQTT…</span>
+            </div>
+            <span class="no-power-pulse"></span>
+          </div>
+        </div>
+
         <!-- Live Sensor Cards Row -->
         <section id="sensor-cards" class="section sensor-cards">
           <div class="card sensor-card voltage-card" id="voltage-card">
@@ -231,7 +267,8 @@
               <p class="relay-note">Toggle to control load relay</p>
             </div>
 
-            <!-- Energy Balance -->
+            <!-- Energy Balance (Advanced Feature) -->
+            <div class="adv-collapsible adv-hidden" id="adv-energy-wrap">
             <div class="card energy-card" id="energy-card">
               <h3 class="card-title">Energy Balance</h3>
               <div class="energy-input-group">
@@ -254,6 +291,10 @@
                   <span class="energy-label">Remaining</span>
                   <span id="energy-remaining" class="energy-value accent">0.00 kWh</span>
                 </div>
+                <div class="energy-stat" style="grid-column: 1 / -1; border-top: 1px solid var(--border-color); padding-top: 8px; margin-top: 4px;">
+                  <span class="energy-label">⏱ Est. Time Left</span>
+                  <span id="energy-time-remaining" class="energy-value" style="font-size: 0.85rem; color: var(--text-secondary);">Calculating...</span>
+                </div>
               </div>
               <div class="energy-progress-wrapper">
                 <div class="energy-progress-bar">
@@ -262,8 +303,10 @@
                 <span id="energy-percent" class="energy-percent">0%</span>
               </div>
             </div>
+            </div>
 
-            <!-- Safety Limits -->
+            <!-- Safety Limits (Advanced Feature) -->
+            <div class="adv-collapsible adv-hidden" id="adv-limits-wrap">
             <div class="card limits-card" id="limits-card">
               <h3 class="card-title">Safety Limits</h3>
               <div class="energy-input-group">
@@ -276,7 +319,11 @@
                   <input type="number" id="limit-current-input" placeholder="e.g. 25" min="0" step="0.1" style="width: 80px;" />
                 </div>
                 <button id="limits-update-btn" class="btn-primary" style="width: 100%; margin-top: var(--gap-sm); padding: 8px 16px;">Save Limits</button>
+                <p style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 6px; text-align: center; line-height: 1.4;">
+                  ⚠️ Warning fires at <strong>85%</strong> of limit &nbsp;|&nbsp; Relay auto-off at limit via MQTT
+                </p>
               </div>
+            </div>
             </div>
           </div>
         </section>

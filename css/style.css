@@ -922,3 +922,194 @@ body {
   .dashboard { padding: var(--gap-sm); }
   .sensor-cards { grid-template-columns: 1fr; }
 }
+
+/* ============================================
+   NO-POWER / SIGNAL LOST BANNER
+   ============================================ */
+.no-power-banner {
+  margin: 0 0 var(--gap-md) 0;
+  border-radius: 10px;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.08), rgba(239, 68, 68, 0.04));
+  overflow: hidden;
+  animation: no-power-slide-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes no-power-slide-in {
+  from { opacity: 0; transform: translateY(-12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.no-power-inner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 20px;
+  color: #ef4444;
+}
+
+.no-power-inner svg {
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
+.no-power-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.no-power-text strong {
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #ef4444;
+}
+
+.no-power-text span {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+/* Animated pulsing dot on the right */
+.no-power-pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ef4444;
+  flex-shrink: 0;
+  animation: no-power-pulse 1.4s ease-in-out infinite;
+  box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6);
+}
+
+@keyframes no-power-pulse {
+  0%   { transform: scale(1);    box-shadow: 0 0 0 0     rgba(239,68,68,0.6); }
+  50%  { transform: scale(1.15); box-shadow: 0 0 0 6px  rgba(239,68,68,0); }
+  100% { transform: scale(1);    box-shadow: 0 0 0 0     rgba(239,68,68,0); }
+}
+
+/* ============================================
+   ADVANCED FEATURES BUTTON
+   ============================================ */
+.adv-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color, #1f1f1f);
+  background: var(--bg-card, #0a0a0a);
+  color: var(--text-secondary, #a1a1aa);
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: border-color 0.25s, color 0.25s, background 0.25s, box-shadow 0.25s;
+  white-space: nowrap;
+  position: relative;
+  overflow: hidden;
+}
+
+.adv-btn:hover {
+  border-color: #10b981;
+  color: #10b981;
+  background: rgba(16,185,129,0.06);
+}
+
+/* Active / ON state */
+.adv-btn.active {
+  border-color: #10b981;
+  color: #10b981;
+  background: rgba(16,185,129,0.08);
+  box-shadow: 0 0 0 1px rgba(16,185,129,0.3), 0 0 16px rgba(16,185,129,0.12);
+}
+
+.adv-btn-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  opacity: 0.75;
+  transition: opacity 0.2s;
+}
+
+.adv-btn.active .adv-btn-icon { opacity: 1; }
+
+.adv-btn-label {
+  flex-shrink: 0;
+}
+
+/* Mini sliding-pill toggle inside the button */
+.adv-btn-pill {
+  display: flex;
+  align-items: center;
+  width: 28px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--bg-surface, #121212);
+  border: 1px solid #2a2a2a;
+  flex-shrink: 0;
+  position: relative;
+  transition: background 0.25s, border-color 0.25s;
+}
+
+.adv-btn.active .adv-btn-pill {
+  background: rgba(16,185,129,0.2);
+  border-color: #10b981;
+}
+
+.adv-btn-dot {
+  position: absolute;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #3f3f3f;
+  transition: transform 0.25s cubic-bezier(0.34,1.56,0.64,1), background 0.25s;
+}
+
+.adv-btn.active .adv-btn-dot {
+  transform: translateX(12px);
+  background: #10b981;
+  box-shadow: 0 0 6px rgba(16,185,129,0.7);
+}
+
+/* ============================================
+   ADVANCED FEATURES — CARD COLLAPSE ANIMATION
+   ============================================ */
+.adv-collapsible {
+  overflow: hidden;
+  transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity    0.35s ease,
+              transform  0.35s cubic-bezier(0.4, 0, 0.2, 1),
+              margin     0.35s ease;
+  max-height: 800px;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.adv-collapsible.adv-hidden {
+  max-height: 0 !important;
+  opacity: 0;
+  transform: translateY(-8px);
+  pointer-events: none;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+/* Pre-render: if localStorage had advanced=true, show cards before JS fires */
+[data-adv="on"] .adv-collapsible {
+  max-height: 800px !important;
+  opacity: 1 !important;
+  transform: translateY(0) !important;
+  pointer-events: auto !important;
+}
+
+/* Responsive: hide Advanced button label text on very small screens */
+@media (max-width: 540px) {
+  .adv-btn-label { display: none; }
+  .adv-btn { padding: 6px 8px; gap: 5px; }
+}
