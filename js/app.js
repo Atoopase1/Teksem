@@ -786,7 +786,7 @@
       var msg = banner.querySelector('#no-power-msg');
       if (msg) {
         if (reason === 'no_power') {
-          msg.textContent = 'No power detected — waiting for ESP32 to connect via MQTT';
+          msg.textContent = 'No power detected, waiting for reconnection.';
         } else {
           msg.textContent = 'Signal lost — no data received for 15 s. Check ESP32 connection.';
         }
