@@ -310,7 +310,8 @@ body {
 /* Sensor Grid */
 .sensor-cards {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  /* Auto-wrapping grid: 5 columns on large screens, automatically wraps on smaller ones */
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: var(--gap-md);
 }
 
@@ -905,13 +906,11 @@ body {
 
 /* Responsive */
 @media (max-width: 1200px) {
-  .sensor-cards { grid-template-columns: repeat(3, 1fr); }
   .charts-controls-row { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 768px) {
   .dashboard { padding: var(--gap-md); }
-  .sensor-cards { grid-template-columns: 1fr 1fr; }
   .app-header { padding: 0 var(--gap-md); }
   .header-meta { display: none; }
   .status-text { display: none; }
@@ -920,7 +919,6 @@ body {
 
 @media (max-width: 480px) {
   .dashboard { padding: var(--gap-sm); }
-  .sensor-cards { grid-template-columns: 1fr; }
 }
 
 /* ============================================
