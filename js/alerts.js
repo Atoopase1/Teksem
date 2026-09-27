@@ -10,11 +10,15 @@
  * critical-control path.
  *
  * Thresholds:
- *  - VOLTAGE_MIN / VOLTAGE_MAX : safe voltage band
+ *  Voltage thresholds mirror firmware defines:
+ *  - V_FAULT_LOW  (180 V) : under-voltage fault  → auto shutoff
+ *  - V_WARN_LOW   (200 V) : under-voltage warning (approaching fault)
+ *  - V_WARN_HIGH  (245 V) : over-voltage warning  (approaching fault)
+ *  - V_FAULT_HIGH (253 V) : over-voltage fault    → auto shutoff
  *  - CURRENT_WARNING            : high-current warning
  *  - CURRENT_FAULT              : fault → auto shutoff
- *  - POWER_WARNING              : dynamically = POWER_FAULT × APPROACH_RATIO
- *  - POWER_FAULT                : user-set fault limit → auto shutoff
+ *  - POWER_WARNING (P_WARN)     : fixed 4000 W warning threshold
+ *  - POWER_FAULT   (P_FAULT)    : user-set fault limit → auto shutoff
  *  - ENERGY_LOW_PERCENT         : % remaining for low-energy alert
  *  - TEMP_WARNING / TEMP_FAULT  : temperature thresholds
  *
@@ -31,14 +35,20 @@
   // ── How close to the fault limit triggers an "approaching" warning ──
   var APPROACH_RATIO = 0.85; // 85 % of POWER_FAULT / CURRENT_FAULT
 
-  // --- Alert Thresholds (configurable) ---
+  // --- Alert Thresholds (mirrors firmware #defines) ---
   var THRESHOLDS = {
-    VOLTAGE_MIN:        207,   // Below this = FAULTY (Under-voltage)
-    VOLTAGE_MAX:        253,   // Above this = FAULTY (Over-voltage)
+    // Voltage — fixed, match firmware V_FAULT_LOW/HIGH & V_WARN_LOW/HIGH
+    VOLTAGE_FAULT_LOW:  180,   // V_FAULT_LOW  — under-voltage fault  → auto shutoff
+    VOLTAGE_WARN_LOW:   200,   // V_WARN_LOW   — under-voltage warning
+    VOLTAGE_WARN_HIGH:  245,   // V_WARN_HIGH  — over-voltage warning
+    VOLTAGE_FAULT_HIGH: 253,   // V_FAULT_HIGH — over-voltage fault   → auto shutoff
+    // Current
     CURRENT_WARNING:    15,    // Current warning threshold (A)
     CURRENT_FAULT:      25,    // Current fault threshold (A) → auto shutoff
-    POWER_WARNING:      3000,  // Dynamically updated = POWER_FAULT × APPROACH_RATIO
-    POWER_FAULT:        5000,  // Power fault threshold (W) → auto shutoff
+    // Power — P_WARN / P_FAULT
+    POWER_WARNING:      4000,  // P_WARN — fixed warning threshold (W)
+    POWER_FAULT:        5000,  // P_FAULT — fault threshold (W) → auto shutoff
+    // Other
     ENERGY_LOW_PERCENT: 10,    // Low energy remaining % alert
     TEMP_WARNING:       50,    // Temperature warning (°C)
     TEMP_FAULT:         70     // Temperature fault (°C)
@@ -129,25 +139,45 @@
     var advOn  = (window._advancedMode === true);
     energy = energy || null;
 
-    // --- Under-Voltage Fault (always active) ---
-    if (data.voltage > 0 && data.voltage < THRESHOLDS.VOLTAGE_MIN) {
+    // --- Under-Voltage Fault (V < V_FAULT_LOW = 180 V, always active) ---
+    if (data.voltage > 0 && data.voltage < THRESHOLDS.VOLTAGE_FAULT_LOW) {
       alerts.push({
         type:        'faulty',
         message:     'CRITICAL: Under-voltage detected! ' + data.voltage.toFixed(1) +
-                     'V is below safe limit (' + THRESHOLDS.VOLTAGE_MIN + 'V). Auto-shutoff activated!',
+                     'V is below fault limit (' + THRESHOLDS.VOLTAGE_FAULT_LOW + 'V). Auto-shutoff activated!',
         severity:    'critical',
         autoShutoff: true
       });
     }
+    // --- Under-Voltage Warning (V_FAULT_LOW ≤ V < V_WARN_LOW = 200 V, always active) ---
+    else if (data.voltage > 0 && data.voltage < THRESHOLDS.VOLTAGE_WARN_LOW) {
+      alerts.push({
+        type:        'warning',
+        message:     'WARNING: Low voltage — ' + data.voltage.toFixed(1) +
+                     'V is below safe minimum (' + THRESHOLDS.VOLTAGE_WARN_LOW + 'V). Risk of under-voltage fault!',
+        severity:    'warning',
+        autoShutoff: false
+      });
+    }
 
-    // --- Over-Voltage Fault (always active) ---
-    if (data.voltage > THRESHOLDS.VOLTAGE_MAX) {
+    // --- Over-Voltage Fault (V > V_FAULT_HIGH = 253 V, always active) ---
+    if (data.voltage > THRESHOLDS.VOLTAGE_FAULT_HIGH) {
       alerts.push({
         type:        'faulty',
         message:     'CRITICAL: Over-voltage detected! ' + data.voltage.toFixed(1) +
-                     'V exceeds safe limit (' + THRESHOLDS.VOLTAGE_MAX + 'V). Auto-shutoff activated!',
+                     'V exceeds fault limit (' + THRESHOLDS.VOLTAGE_FAULT_HIGH + 'V). Auto-shutoff activated!',
         severity:    'critical',
         autoShutoff: true
+      });
+    }
+    // --- Over-Voltage Warning (V_WARN_HIGH = 245 V < V ≤ V_FAULT_HIGH, always active) ---
+    else if (data.voltage > THRESHOLDS.VOLTAGE_WARN_HIGH) {
+      alerts.push({
+        type:        'warning',
+        message:     'WARNING: High voltage — ' + data.voltage.toFixed(1) +
+                     'V is above safe maximum (' + THRESHOLDS.VOLTAGE_WARN_HIGH + 'V). Risk of over-voltage fault!',
+        severity:    'warning',
+        autoShutoff: false
       });
     }
 
